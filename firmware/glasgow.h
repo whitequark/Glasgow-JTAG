@@ -119,9 +119,15 @@ bool iobuf_poll_alert_adc081c(__xdata uint8_t *mask, bool clear);
 // ADC API (TI INA233)
 bool iobuf_init_adc_ina233();
 bool iobuf_measure_voltage_ina233(uint8_t selector, __xdata uint16_t *millivolts);
+bool iobuf_set_alert_ina233(uint8_t mask,
+                     __xdata const uint16_t *low_millivolts,
+                     __xdata const uint16_t *high_millivolts);
 bool iobuf_get_alert_ina233(uint8_t selector,
                      __xdata uint16_t *low_millivolts,
                      __xdata uint16_t *high_millivolts);
+bool iobuf_poll_alert_ina233(__xdata uint8_t *mask);
+bool iobuf_clear_alert_ina233(uint8_t mask);
+void iobuf_read_alert_cache_ina233(__xdata uint8_t *mask, bool clear);
 
 // Pull API
 bool iobuf_set_pull(uint8_t selector, uint8_t enable, uint8_t level);
@@ -133,6 +139,8 @@ void fifo_configure(bool two_ep);
 void fifo_reset(bool two_ep, uint8_t interfaces);
 
 // Util functions
+bool i2c_direct_read(uint8_t addr, __pdata uint8_t *value, uint8_t length);
+
 bool i2c_reg8_read(uint8_t addr, uint8_t reg,
                          __pdata uint8_t *value, uint8_t length);
 bool i2c_reg8_write(uint8_t addr, uint8_t reg,
