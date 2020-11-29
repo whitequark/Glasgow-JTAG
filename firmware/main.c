@@ -791,6 +791,10 @@ void handle_pending_usb_setup() {
 volatile bool pending_alert;
 
 void isr_IE0() __interrupt(_INT_IE0) {
+  // INT_IE0 is level triggered, the ~ALERT line is continously pulled low by the ADC
+  // So disable this irq unil we have fully handled it, otherwise it permanently triggers
+  EX0 = false;
+
   pending_alert = true;
 }
 
@@ -803,6 +807,12 @@ void handle_pending_alert() {
   latch_status_bit(ST_ALERT);
   iobuf_poll_alert_adc081c(&mask, /*clear=*/false);
   iobuf_set_voltage(mask, &millivolts);
+
+  // TODO: handle i2c comms errors of above calls
+
+  // the ADC that pulled the ~ALERT line should have released it by now
+  // so we can re-enable the interrupt to catch the next alert
+  EX0 = true;
 }
 
 void isr_TF2() __interrupt(_INT_TF2) {
