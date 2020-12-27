@@ -602,9 +602,16 @@ void handle_pending_usb_setup() {
      req->wLength == 2) {
     uint8_t  arg_mask = req->wIndex;
     pending_setup = false;
+    bool result;
 
     while(EP0CS & _BUSY);
-    if(!iobuf_measure_voltage(arg_mask, (__xdata uint16_t *)EP0BUF)) {
+
+    if(glasgow_config.revision == GLASGOW_REV_C2)
+      result = iobuf_measure_voltage_ina233(arg_mask, (__xdata uint16_t *)EP0BUF);
+    else
+      result = iobuf_measure_voltage_adc081c(arg_mask, (__xdata uint16_t *)EP0BUF);
+
+    if(!result) {
       STALL_EP0();
     } else {
       SETUP_EP0_BUF(2);
@@ -621,10 +628,17 @@ void handle_pending_usb_setup() {
     bool     arg_get = (req->bmRequestType & USB_DIR_IN);
     uint8_t  arg_mask = req->wIndex;
     pending_setup = false;
+    bool result;
 
     if(arg_get) {
       while(EP0CS & _BUSY);
-      if(!iobuf_get_alert(arg_mask, (__xdata uint16_t *)EP0BUF, (__xdata uint16_t *)EP0BUF + 1)) {
+
+      if(glasgow_config.revision == GLASGOW_REV_C2)
+        result = iobuf_get_alert_ina233(arg_mask, (__xdata uint16_t *)EP0BUF, (__xdata uint16_t *)EP0BUF + 1);
+      else
+        result = iobuf_get_alert_adc081c(arg_mask, (__xdata uint16_t *)EP0BUF, (__xdata uint16_t *)EP0BUF + 1);
+
+      if(!result) {
         STALL_EP0();
       } else {
         SETUP_EP0_BUF(4);
@@ -632,7 +646,13 @@ void handle_pending_usb_setup() {
     } else {
       SETUP_EP0_BUF(4);
       while(EP0CS & _BUSY);
-      if(!iobuf_set_alert(arg_mask, (__xdata uint16_t *)EP0BUF, (__xdata uint16_t *)EP0BUF + 1)) {
+
+      if(glasgow_config.revision == GLASGOW_REV_C2)
+        result = iobuf_set_alert_ina233(arg_mask, (__xdata uint16_t *)EP0BUF, (__xdata uint16_t *)EP0BUF + 1);
+      else
+        result = iobuf_set_alert_adc081c(arg_mask, (__xdata uint16_t *)EP0BUF, (__xdata uint16_t *)EP0BUF + 1);
+
+      if(!result) {
         latch_status_bit(ST_ERROR);
       }
     }
@@ -645,13 +665,22 @@ void handle_pending_usb_setup() {
      req->bRequest == USB_REQ_POLL_ALERT &&
      req->wLength == 1) {
     pending_setup = false;
+    bool result = true;
 
     while(EP0CS & _BUSY);
-    iobuf_poll_alert(EP0BUF, /*clear=*/true);
-    SETUP_EP0_BUF(1);
-
-    reset_status_bit(ST_ALERT);
-
+    
+    if(glasgow_config.revision == GLASGOW_REV_C2)
+      iobuf_read_alert_cache_ina233(EP0BUF, /*clear=*/true);
+    else
+      result = iobuf_poll_alert_adc081c(EP0BUF, /*clear=*/true);
+    
+    if(!result) {
+      STALL_EP0();
+    } else {
+      SETUP_EP0_BUF(1);
+      reset_status_bit(ST_ALERT);
+    }
+    
     return;
   }
 
@@ -770,6 +799,10 @@ void handle_pending_usb_setup() {
 volatile bool pending_alert;
 
 void isr_IE0() __interrupt(_INT_IE0) {
+  // INT_IE0 is level triggered, the ~ALERT line is continously pulled low by the ADC
+  // So disable this irq unil we have fully handled it, otherwise it permanently triggers
+  EX0 = false;
+
   pending_alert = true;
 }
 
@@ -780,8 +813,27 @@ void handle_pending_alert() {
   pending_alert = false;
 
   latch_status_bit(ST_ALERT);
-  iobuf_poll_alert(&mask, /*clear=*/false);
+  
+  if(glasgow_config.revision == GLASGOW_REV_C2) {
+    iobuf_poll_alert_ina233(&mask);
+  } else {
+    iobuf_poll_alert_adc081c(&mask, /*clear=*/false);
+  }
+
+  // TODO: handle i2c comms errors of above calls
+  
   iobuf_set_voltage(mask, &millivolts);
+
+  if(glasgow_config.revision == GLASGOW_REV_C2) {
+    // only clear the ~ALERT line after the port vio has been disabled
+    // this prevents re-enabling the port voltage for a short time
+    // since on revC2 ~ALERT already disables the respective Vreg on a hw level
+    iobuf_clear_alert_ina233(mask);
+  }
+  
+  // the ADC that pulled the ~ALERT line should have released it by now
+  // so we can re-enable the interrupt to catch the next alert
+  EX0 = true;
 }
 
 void isr_TF2() __interrupt(_INT_TF2) {
@@ -820,7 +872,14 @@ int main() {
   config_fixup();
   descriptors_init();
   iobuf_init_dac_ldo();
-  iobuf_init_adc();
+
+  if(glasgow_config.revision == GLASGOW_REV_C2) {
+    if (!iobuf_init_adc_ina233())
+      latch_status_bit(ST_ERROR);
+  }
+  else
+    iobuf_init_adc_adc081c();
+
   fpga_init();
   fifo_init();
 
