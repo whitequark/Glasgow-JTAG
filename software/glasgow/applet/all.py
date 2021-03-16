@@ -47,6 +47,7 @@ from .display.pdi import DisplayPDIApplet
 from .audio.dac import AudioDACApplet
 from .audio.yamaha_opx import AudioYamahaOPxApplet
 
+from .video.hub75_output import Hub75OutputApplet
 from .video.rgb_input import VideoRGBInputApplet
 from .video.vga_output import VGAOutputApplet
 from .video.ws2812_output import VideoWS2812OutputApplet
