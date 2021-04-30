@@ -101,7 +101,7 @@ class UARTSubtarget(Elaboratable):
 
         m.d.comb += uart.bit_cyc.eq(self.bit_cyc)
         with m.If(self.use_auto):
-            with m.If((uart.rx_ferr | uart.rx_perr) & (self.auto_cyc != ~0)):
+            with m.If(self.auto_cyc != ~0):
                 m.d.sync += self.bit_cyc.eq(self.auto_cyc)
         with m.Else():
             m.d.sync += self.bit_cyc.eq(self.manual_cyc)
@@ -260,7 +260,11 @@ class UARTApplet(GlasgowApplet, name="uart"):
                 self.logger.warning("%d frame or parity errors detected", delta)
 
             new_bit_cyc = await device.read_register(self.__addr_bit_cyc, width=4)
-            if new_bit_cyc != cur_bit_cyc:
+
+            cur_bit_cyc_lo = cur_bit_cyc * 0.95
+            cur_bit_cyc_hi = cur_bit_cyc * 1.05
+
+            if new_bit_cyc < cur_bit_cyc_lo or new_bit_cyc > cur_bit_cyc_hi:
                 self.logger.info("switched to %d baud",
                                  self.__sys_clk_freq // (new_bit_cyc + 1))
             cur_bit_cyc = new_bit_cyc
